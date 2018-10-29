@@ -124,17 +124,21 @@ class LogLinearLM:
     def train(self, output_path):
         # perform stochastic gradient descent
         for i in range(EPOCH):
-            print("Epoch:", i)
+            # print("Epoch:", i)
             data = self.sentences[:]
+            total_loss = 0
             while data:
                 sent = random.choice(data)
                 data.remove(sent)
                 words = random.choice(LogLinearLM._get_ngrams(sent.split(), self.n))
-                print("chosen words: '{}'".format(words))
+                # print("chosen words: '{}'".format(words))
                 for j in range(MINI_EPOCH):
                     self.perform_gd(words)
                     loss = - math.log(self.compute_probability(words)[self.vocabs[words.split()[-1]]])
-                    print("Mini-Epoch: {} Loss: {}".format(j, loss))
+                    # print("Mini-Epoch: {} Loss: {}".format(j, loss))
+                total_loss += loss
+
+            print("Epoch: {}  Loss: {}".format(i, total_loss))
             print("=" * 60)
 
         with open(output_path, 'wb') as f: 
@@ -172,7 +176,7 @@ class LogLinearLM:
 
 
 if __name__ == '__main__':
-    model = LogLinearLM("dataset\wiki-en-train.word", 2)
-    # model.train("model\log-linear.pkl")    
-    model.load_model("..\model\log-linear.pkl")
+    model = LogLinearLM("..\dataset\wiki-en-train.word", 2)
+    model.train("..\model\log-linear.pkl")    
+    # model.load_model("..\model\log-linear.pkl")
     model.evaluate("..\dataset\wiki-en-test.word")
