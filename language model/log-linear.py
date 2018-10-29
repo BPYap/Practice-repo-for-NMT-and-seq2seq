@@ -8,7 +8,7 @@ import numpy as np
 ALPHA = 0.05
 MAX_VOCAB = 10000000
 LEARNING_RATE = 0.1
-EPOCH = 20
+EPOCH = 30
 MINI_EPOCH = 5
 
 class LogLinearLM:
@@ -47,7 +47,7 @@ class LogLinearLM:
     @staticmethod
     def _get_ngrams(tokens, n):
         ngrams = []
-        for i in range(len(tokens)):
+        for i in range(n - 2, len(tokens)):
             start = i - n + 1
             if start < 0:
                 ngram = " ".join(["<s>"] + tokens[:i + 1])
@@ -176,7 +176,7 @@ class LogLinearLM:
 
 
 if __name__ == '__main__':
-    model = LogLinearLM("..\dataset\wiki-en-train.word", 2)
+    model = LogLinearLM("..\dataset\wiki-en-train.word", 3)
     model.train("..\model\log-linear.pkl")    
     # model.load_model("..\model\log-linear.pkl")
     model.evaluate("..\dataset\wiki-en-test.word")

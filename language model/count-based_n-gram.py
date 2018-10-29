@@ -22,7 +22,7 @@ class NgramLM:
     @staticmethod
     def _get_ngrams(tokens, n):
         ngrams = []
-        for i in range(len(tokens)):
+        for i in range(n - 2, len(tokens)):
             start = i - n + 1
             if start < 0:
                 ngram = " ".join(["<s>"] + tokens[:i + 1])
@@ -93,6 +93,6 @@ class NgramLM:
 
 
 if __name__ == '__main__':
-    model = NgramLM(2)
+    model = NgramLM(3)
     model.train("..\dataset\wiki-en-train.word")
     model.evaluate("..\dataset\wiki-en-test.word")
