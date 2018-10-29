@@ -37,6 +37,7 @@ class NgramLM:
         with open(file_path, encoding='utf-8') as f:
             for line in iter(f.readline, ''):
                 tokens = line.split() + ['</s>']
+                self.vocab_count['<s>'] += 1
                 for t in tokens:
                     self.vocab_count[t] += 1
                     self.word_count += 1
@@ -72,11 +73,17 @@ class NgramLM:
                     if self.n == 1:
                         ngram_likelihood = ALPHA / MAX_VOCAB
                     else:
-                        word = ngram.split()[-1]
-                        if self.vocab_count[word] == 0:
-                            self.unknown_words.add(word)
+                        has_unknown = False
+
+                        for w in ngram.split():
+                            if w not in self.vocab_count:
+                                self.unknown_words.add(w)
+                                has_unknown = True
+
+                        if has_unknown:
                             ngram_likelihood = ALPHA / MAX_VOCAB
                         else:
+                            word = ngram.split()[-1]
                             ngram_likelihood = ALPHA * self.vocab_count[word] / self.word_count
 
                     if ngram in self.param:
