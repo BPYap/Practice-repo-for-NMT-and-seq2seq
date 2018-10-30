@@ -5,11 +5,10 @@ import random
 import numpy as np
 
 #  Hyper-parameters
-ALPHA = 0.05
+ALPHA = 0.1
 MAX_VOCAB = 10000000
 LEARNING_RATE = 0.1
 EPOCH = 30
-MINI_EPOCH = 5
 
 class LogLinearLM:
     def __init__(self, input_path, n):
@@ -86,7 +85,8 @@ class LogLinearLM:
 
     def onehot(self, word):
         temp = [0.0] * self.vocab_size
-        temp[self.vocabs[word]] = 1.0
+        if word in self.vocabs:
+            temp[self.vocabs[word]] = 1.0
         return np.array(temp)
 
     def extract_feature(self, words):
@@ -95,8 +95,6 @@ class LogLinearLM:
         for t in context_tokens[::-1]:
             temp.extend(self.onehot(t))
 
-        for _ in range(self.n - 1 - len(context_tokens)):
-            temp.extend([0.0] * self.vocab_size)
         return np.array(temp)
 
     def compute_probability(self, words):
@@ -126,16 +124,15 @@ class LogLinearLM:
         for i in range(EPOCH):
             # print("Epoch:", i)
             data = self.sentences[:]
+            random.shuffle(data)
             total_loss = 0
             while data:
-                sent = random.choice(data)
-                data.remove(sent)
+                sent = data.pop()
                 words = random.choice(LogLinearLM._get_ngrams(sent.split(), self.n))
                 # print("chosen words: '{}'".format(words))
-                for j in range(MINI_EPOCH):
-                    self.perform_gd(words)
-                    loss = - math.log(self.compute_probability(words)[self.vocabs[words.split()[-1]]])
-                    # print("Mini-Epoch: {} Loss: {}".format(j, loss))
+                self.perform_gd(words)
+                loss = - math.log(self.compute_probability(words)[self.vocabs[words.split()[-1]]])
+
                 total_loss += loss
 
             print("Epoch: {}  Loss: {}".format(i, total_loss))
@@ -154,15 +151,13 @@ class LogLinearLM:
                 ngrams = self._get_ngrams(tokens, self.n)
                 sentence_likelihood = 0
                 for ngram in ngrams:
-                    has_unknown = False
-                    for word in ngram.split():
-                        if word not in self.vocabs:
-                            self.unknown_words.add(word)
-                            has_unknown = True
+                    for w in ngram.split():
+                        if w not in self.vocabs:
+                            self.unknown_words.add(w)
 
                     ngram_likelihood = ALPHA / MAX_VOCAB
-                    if not has_unknown:
-                        word = ngram.split()[-1]
+                    word = ngram.split()[-1]
+                    if word in self.vocabs:
                         ngram_likelihood += (1 - ALPHA) * self.compute_probability(ngram)[self.vocabs[word]]      
 
                     sentence_likelihood += math.log(ngram_likelihood)
@@ -178,5 +173,5 @@ class LogLinearLM:
 if __name__ == '__main__':
     model = LogLinearLM("..\dataset\wiki-en-train.word", 3)
     model.train("..\model\log-linear.pkl")    
-    # model.load_model("..\model\log-linear.pkl")
+    model.load_model("..\model\log-linear.pkl")
     model.evaluate("..\dataset\wiki-en-test.word")

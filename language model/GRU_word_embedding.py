@@ -5,7 +5,7 @@ import dynet as dy
 import numpy as np
 
 #  Hyper-parameters
-ALPHA = 0.05
+ALPHA = 0.1
 MAX_VOCAB = 10000000
 EMBEDDING_DIMENSION = 512
 HIDDEN_SIZE = 16
@@ -114,18 +114,22 @@ class GRU_LM:
                 dy.renew_cg()
                 tokens = ["<s>"] + line.split() + ["</s>"]
                 num_words += len(tokens) - 1
+                for w in line.split():
+                    if w not in self.vocabs:
+                        self.unknown_words.add(w)
                 sentence_likelihood = 0
                 hidden_state = None
                 while len(tokens) > 1:
                     curr_word = tokens.pop(0)
                     next_word = tokens[0]
                     word_likelihood = ALPHA / MAX_VOCAB
-                    if curr_word in self.vocabs and next_word in self.vocabs:
+
+                    if curr_word not in self.vocabs or next_word not in self.vocabs:
+                        hidden_state = None
+                    else:
                         hidden_state = self.gru_step(curr_word, hidden_state)
                         probabilities = dy.softmax(self.w_s * hidden_state + self.b_s)
                         word_likelihood += (1 - ALPHA) * probabilities[self.vocabs[next_word]].value()
-                    elif curr_word not in self.vocabs:
-                        self.unknown_words.add(curr_word)
 
                     sentence_likelihood += math.log(word_likelihood)
 
@@ -158,7 +162,7 @@ class GRU_LM:
         
 if __name__ == '__main__':
     model = GRU_LM("..\dataset\wiki-en-train.word")
-    model.train("..\model\gru.model")    
-    # model.load_model("..\model\gru.model")
+    # model.train("..\model\gru.model")    
+    model.load_model("..\model\gru.model")
     model.evaluate("..\dataset\wiki-en-test.word")
     model.predict("Natural language")

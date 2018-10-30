@@ -5,7 +5,7 @@ import dynet as dy
 import numpy as np
 
 #  Hyper-parameters
-ALPHA = 0.05
+ALPHA = 0.1
 MAX_VOCAB = 10000000
 EMBEDDING_DIMENSION = 512
 HIDDEN_SIZE = 16
@@ -65,10 +65,17 @@ class MLP_LM:
     
         if len(context) != self.n - 1:
             raise AssertionError("Expecting context of size {}, not {}".format(self.n - 1, len(context)))
-
-        m = dy.lookup(self.embedding, self.vocabs[context.pop(0)])
+        
+        word = context.pop(0)
+        if word not in self.vocabs:
+            m = dy.zeros(EMBEDDING_DIMENSION)
+        else:
+            m = dy.lookup(self.embedding, self.vocabs[word])
         for word in context:
-            n = dy.lookup(self.embedding, self.vocabs[word])
+            if word not in self.vocabs:
+                n = dy.zeros(EMBEDDING_DIMENSION)
+            else:
+                n = dy.lookup(self.embedding, self.vocabs[word])
             m = dy.concatenate([m, n])
 
         h = dy.rectify(self.w1 * m + self.b1)
@@ -78,7 +85,6 @@ class MLP_LM:
 
     def train(self, output_path):
         # perform stochastic gradient descent
-        
         for i in range(EPOCH):
             data = self.sentences[:]
             total_loss = 0
@@ -110,17 +116,15 @@ class MLP_LM:
                 ngrams = self._get_ngrams(tokens, self.n)
                 sentence_likelihood = 0
                 for ngram in ngrams:
-                    has_unknown = False
-                    for word in ngram.split():
-                        if word not in self.vocabs:
-                            self.unknown_words.add(word)
-                            has_unknown = True
+                    for w in ngram.split():
+                        if w not in self.vocabs:
+                            self.unknown_words.add(w)
 
                     ngram_likelihood = ALPHA / MAX_VOCAB
-                    if not has_unknown:
-                        tokens = ngram.split()
-                        word = tokens[-1]
-                        s = self.compute_score(" ".join(tokens[:-1]))
+                    ngram_tokens = ngram.split()
+                    word = ngram_tokens[-1]
+                    if word in self.vocabs:
+                        s = self.compute_score(" ".join(ngram_tokens[:-1]))
                         probabilities = dy.softmax(s)
                         ngram_likelihood += (1 - ALPHA) * probabilities[self.vocabs[word]].value()     
 
@@ -147,10 +151,10 @@ class MLP_LM:
         predicted = list(self.vocabs.keys())[most_likely_index]
         print("context: '{}'".format(context))
         print("predicted word: '{}'  confidence: {} %".format(predicted, max_probability))
-        
+
 if __name__ == '__main__':
     model = MLP_LM("..\dataset\wiki-en-train.word", 3)
     model.train("..\model\mlp.model")    
-    # model.load_model("..\model\mlp.model")
+    model.load_model("..\model\mlp.model")
     model.evaluate("..\dataset\wiki-en-test.word")
     model.predict("Natural language")

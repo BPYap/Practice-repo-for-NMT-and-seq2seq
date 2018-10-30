@@ -2,7 +2,7 @@ import math
 from collections import defaultdict
 
 #  Hyper-parameters
-ALPHA = 0.05
+ALPHA = 0.1
 MAX_VOCAB = 10000000
 
 class NgramLM:
@@ -73,17 +73,14 @@ class NgramLM:
                     if self.n == 1:
                         ngram_likelihood = ALPHA / MAX_VOCAB
                     else:
-                        has_unknown = False
-
                         for w in ngram.split():
                             if w not in self.vocab_count:
                                 self.unknown_words.add(w)
-                                has_unknown = True
 
-                        if has_unknown:
+                        word = ngram.split()[-1]
+                        if word not in self.vocab_count:
                             ngram_likelihood = ALPHA / MAX_VOCAB
                         else:
-                            word = ngram.split()[-1]
                             ngram_likelihood = ALPHA * self.vocab_count[word] / self.word_count
 
                     if ngram in self.param:
