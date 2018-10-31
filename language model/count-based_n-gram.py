@@ -9,12 +9,8 @@ class NgramLM:
     def __init__(self, n):
         self.n = n
         self.context_count = defaultdict(int)
+        self.ngram_count = defaultdict(int)
         self.vocab_count = defaultdict(int)
-        if n == 1:
-            #  ngram_count points to vocab_count if n == 1
-            self.ngram_count = self.vocab_count
-        else:
-            self.ngram_count = defaultdict(int)
         self.word_count = 0
         self.param = {}
         self.unknown_words = set()
@@ -59,34 +55,41 @@ class NgramLM:
 
         # print(self.param)
 
+    def extract_unknown_words(self, sentence):
+        tokens = sentence.split()
+        for t in tokens:
+            if t not in self.vocab_count:
+                self.unknown_words.add(t)
+
     def evaluate(self, file_path):
         log_likelihood_sum = 0
         num_words = 0
         with open(file_path, encoding='utf-8') as f:
             for line in iter(f.readline, ''):
+                self.extract_unknown_words(line)
                 tokens = line.split() + ['</s>']
                 num_words += len(tokens)
+
                 ngrams = self._get_ngrams(tokens, self.n)
                 sentence_likelihood = 0
-                for ngram in ngrams:
-                    # smoothing/ interpolation for unknown words
-                    if self.n == 1:
-                        ngram_likelihood = ALPHA / MAX_VOCAB
-                    else:
-                        for w in ngram.split():
-                            if w not in self.vocab_count:
-                                self.unknown_words.add(w)
-
+                # Unigram model needs to be handled differently
+                if self.n == 1:
+                    for word in ngrams:
+                        word_likelihood = ALPHA / MAX_VOCAB  # interpolation for unknown words
+                        if word in self.vocab_count:
+                            word_likelihood += (1 - ALPHA) * self.vocab_count[word] / self.word_count
+                        sentence_likelihood += math.log(word_likelihood)
+                else:
+                    for ngram in ngrams:
+                        ngram_likelihood = ALPHA / MAX_VOCAB  # interpolation for unknown words
                         word = ngram.split()[-1]
-                        if word not in self.vocab_count:
-                            ngram_likelihood = ALPHA / MAX_VOCAB
-                        else:
-                            ngram_likelihood = ALPHA * self.vocab_count[word] / self.word_count
-
-                    if ngram in self.param:
-                        ngram_likelihood += (1 - ALPHA) * self.param[ngram]                 
-
-                    sentence_likelihood += math.log(ngram_likelihood)
+                        if word in self.vocab_count:
+                            # smoothing for unseen n-gram (interpolate to unigram likelihood)
+                            part_likelihood = ALPHA * self.vocab_count[word] / self.word_count
+                            if ngram in self.param:
+                                part_likelihood += (1 - ALPHA) * self.param[ngram]
+                            ngram_likelihood += (1 - ALPHA) * part_likelihood
+                        sentence_likelihood += math.log(ngram_likelihood)
 
                 log_likelihood_sum += sentence_likelihood
 
