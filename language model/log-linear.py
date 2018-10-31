@@ -141,20 +141,24 @@ class LogLinearLM:
         with open(output_path, 'wb') as f: 
             pickle.dump({"weight": model.weight, "bias": model.bias, "vocab": model.vocabs}, f, pickle.HIGHEST_PROTOCOL)
 
+    def extract_unknown_words(self, sentence):
+        tokens = sentence.split()
+        for t in tokens:
+            if t not in self.vocabs:
+                self.unknown_words.add(t)
+
     def evaluate(self, file_path):
         log_likelihood_sum = 0
         num_words = 0
         with open(file_path, encoding='utf-8') as f:
             for line in iter(f.readline, ''):
+                self.extract_unknown_words(line)
                 tokens = line.split() + ['</s>']
                 num_words += len(tokens)
+
                 ngrams = self._get_ngrams(tokens, self.n)
                 sentence_likelihood = 0
                 for ngram in ngrams:
-                    for w in ngram.split():
-                        if w not in self.vocabs:
-                            self.unknown_words.add(w)
-
                     ngram_likelihood = ALPHA / MAX_VOCAB
                     word = ngram.split()[-1]
                     if word in self.vocabs:

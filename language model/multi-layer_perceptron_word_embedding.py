@@ -7,9 +7,9 @@ import numpy as np
 #  Hyper-parameters
 ALPHA = 0.1
 MAX_VOCAB = 10000000
-EMBEDDING_DIMENSION = 512
-HIDDEN_SIZE = 16
-EPOCH = 300
+EMBEDDING_DIMENSION = 16
+HIDDEN_SIZE = 8
+EPOCH = 30
 
 
 class MLP_LM:
@@ -87,10 +87,10 @@ class MLP_LM:
         # perform stochastic gradient descent
         for i in range(EPOCH):
             data = self.sentences[:]
+            random.shuffle(data)
             total_loss = 0
             while data:
-                sent = random.choice(data)
-                data.remove(sent)
+                sent = data.pop()
                 ngram = random.choice(MLP_LM._get_ngrams(sent.split(), self.n))
                 tokens = ngram.split()
                 idx = self.vocabs[tokens[-1]]
@@ -105,21 +105,25 @@ class MLP_LM:
             print("=" * 60)
 
         self.model.save(output_path)
+    
+    def extract_unknown_words(self, sentence):
+        tokens = sentence.split()
+        for t in tokens:
+            if t not in self.vocabs:
+                self.unknown_words.add(t)
 
     def evaluate(self, file_path):
         log_likelihood_sum = 0
         num_words = 0
         with open(file_path, encoding='utf-8') as f:
             for line in iter(f.readline, ''):
+                self.extract_unknown_words(line)
                 tokens = line.split() + ['</s>']
                 num_words += len(tokens)
+
                 ngrams = self._get_ngrams(tokens, self.n)
                 sentence_likelihood = 0
                 for ngram in ngrams:
-                    for w in ngram.split():
-                        if w not in self.vocabs:
-                            self.unknown_words.add(w)
-
                     ngram_likelihood = ALPHA / MAX_VOCAB
                     ngram_tokens = ngram.split()
                     word = ngram_tokens[-1]
