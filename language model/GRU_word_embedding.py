@@ -64,7 +64,10 @@ class GRU_LM:
     def gru_step(self, word, h_prev):
         if h_prev is None:
             h_prev = dy.zeros(HIDDEN_SIZE)
-        x = dy.lookup(self.embedding, self.vocabs[word])
+        if word not in self.vocabs:
+            x = dy.zeros(EMBEDDING_DIMENSION) 
+        else:
+            x = dy.lookup(self.embedding, self.vocabs[word])
         r = dy.logistic(self.w_xr * x + self.w_hr * h_prev + self.b_r)
         z = dy.logistic(self.w_xz * x + self.w_hz * h_prev + self.b_z)
         c_h = dy.tanh(self.w_xh * x + self.w_hh * dy.cmult(r, h_prev) + self.b_h)
@@ -111,25 +114,23 @@ class GRU_LM:
         num_words = 0
         with open(file_path, encoding='utf-8') as f:
             for line in iter(f.readline, ''):
-                dy.renew_cg()
                 tokens = ["<s>"] + line.split() + ["</s>"]
                 num_words += len(tokens) - 1
-                for w in line.split():
-                    if w not in self.vocabs:
-                        self.unknown_words.add(w)
-                sentence_likelihood = 0
-                hidden_state = None
-                while len(tokens) > 1:
-                    curr_word = tokens.pop(0)
-                    next_word = tokens[0]
-                    word_likelihood = ALPHA / MAX_VOCAB
 
-                    if curr_word not in self.vocabs or next_word not in self.vocabs:
-                        hidden_state = None
+                sentence_likelihood = 0
+                for i in range(1, len(tokens)):
+                    predicting_word = tokens[i]
+                    word_likelihood = ALPHA / MAX_VOCAB
+                    if predicting_word not in self.vocabs:
+                        self.unknown_words.add(predicting_word)
                     else:
-                        hidden_state = self.gru_step(curr_word, hidden_state)
+                        dy.renew_cg()
+                        hidden_state = None
+                        for j in range(i):
+                            hidden_state = self.gru_step(tokens[j], hidden_state)
+
                         probabilities = dy.softmax(self.w_s * hidden_state + self.b_s)
-                        word_likelihood += (1 - ALPHA) * probabilities[self.vocabs[next_word]].value()
+                        word_likelihood += (1 - ALPHA) * probabilities[self.vocabs[predicting_word]].value()
 
                     sentence_likelihood += math.log(word_likelihood)
 
@@ -162,7 +163,7 @@ class GRU_LM:
         
 if __name__ == '__main__':
     model = GRU_LM("..\dataset\wiki-en-train.word")
-    # model.train("..\model\gru.model")    
+    model.train("..\model\gru.model")    
     model.load_model("..\model\gru.model")
     model.evaluate("..\dataset\wiki-en-test.word")
     model.predict("Natural language")
