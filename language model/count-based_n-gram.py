@@ -5,7 +5,7 @@ from collections import defaultdict
 ALPHA = 0.1
 MAX_VOCAB = 10000000
 
-class NgramLM:
+class Ngram_LM:
     def __init__(self, n):
         self.n = n
         self.context_count = defaultdict(int)

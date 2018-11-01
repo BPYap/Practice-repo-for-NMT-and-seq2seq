@@ -10,7 +10,7 @@ MAX_VOCAB = 10000000
 LEARNING_RATE = 0.1
 EPOCH = 30
 
-class LogLinearLM:
+class LogLinear_LM:
     def __init__(self, input_path, n):
         self.n = n
         self.vocabs = set()
