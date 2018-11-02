@@ -103,7 +103,7 @@ class LSTM_Encoder(LSTM_Model):
 
     def compute_loss(self, sentence):
         dy.renew_cg()
-        tokens = ["<s>"] + sentence.split() + ["</s>"]
+        tokens = sentence.split() + ["</s>"]
         sentence_loss = None
         hidden_state = None
         cell_state = None
