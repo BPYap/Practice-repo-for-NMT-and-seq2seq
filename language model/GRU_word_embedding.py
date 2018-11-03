@@ -79,7 +79,7 @@ class GRU_LM:
 
     def compute_sentence_loss(self, sentence):
         dy.renew_cg()
-        tokens = ["<s>"] + sentence.split() + ["</s>"]
+        tokens = sentence.split() + ["</s>"]
         sentence_loss = None
         hidden_state = None
         while len(tokens) > 1:
