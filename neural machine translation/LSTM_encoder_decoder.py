@@ -1,6 +1,8 @@
 import math
 import random
 
+import dynet_config
+dynet_config.set_gpu()
 import dynet as dy
 import numpy as np
 from nltk.translate.bleu_score import sentence_bleu
