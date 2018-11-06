@@ -7,13 +7,15 @@ import torch.nn.functional as F
 import torch.optim as optim
 from nltk.translate.bleu_score import sentence_bleu
 
-device = torch.device('cpu')
+# device = torch.device('cpu')
 device = torch.device('cuda')
 
 #  Hyper-parameters
+ALPHA = 0.1
+MAX_VOCAB = 10000000
 EMBEDDING_DIMENSION = 64
 HIDDEN_SIZE = 16
-EPOCH = 20
+EPOCH = 100
 LEARNING_RATE = 0.1
 
 class LSTM_Model(nn.Module):
@@ -25,6 +27,7 @@ class LSTM_Model(nn.Module):
         self.token_separator = vocab_separator
         self.initialize_vocab(self.sentences, vocab_separator)
         self.vocab_size = len(self.vocabs)
+        self.unknown_words = set()
 
         self.embedding = nn.Embedding(self.vocab_size, EMBEDDING_DIMENSION)
         self.lstm = nn.LSTM(EMBEDDING_DIMENSION, HIDDEN_SIZE)
@@ -32,23 +35,54 @@ class LSTM_Model(nn.Module):
 
     def initialize_vocab(self, sentences, vocab_separator):
         self.vocabs['<s>'] = 0
-        idx = 1
+        self.vocabs['</s>'] = 1
+        self.vocabs['<unk>'] = 2
+        idx = 3
         for sent in sentences:
             if vocab_separator == "":
-                tokens = [t for t in sent] + ['</s>']
+                tokens = [t for t in sent]
             else:
-                tokens = sent.split(vocab_separator) + ['</s>']
+                tokens = sent.split(vocab_separator)
             for t in tokens:
                 if t not in self.vocabs:
                     self.vocabs[t] = idx
                     idx += 1
 
     def get_embedding_lookups(self, sentence):
+        lookups = []
+        sentence = sentence.strip()
+
+        # handles start and end token
+        if sentence.startswith('<s>'):
+            lookups.append(self.vocabs['<s>'])
+            sentence = sentence.lstrip('<s>').strip()
+        add_later = None
+        if sentence.endswith('</s>'):
+            add_later = self.vocabs['</s>']
+            sentence = sentence.rstrip('</s>').strip()
+
         if self.token_separator == "":
-            lookups = [self.vocabs[t] for t in sentence]
+            for t in sentence:
+                if t not in self.vocabs:
+                    self.unknown_words.add(t)
+                    lookups.append(self.vocabs['<unk>'])
+                else:
+                    lookups.append(self.vocabs[t])
         else:
-            lookups = [self.vocabs[t] for t in sentence.split(self.token_separator)]
+            for t in sentence.split(self.token_separator):
+                if t not in self.vocabs:
+                    self.unknown_words.add(t)
+                    lookups.append(self.vocabs['<unk>'])
+                else:
+                    lookups.append(self.vocabs[t])
+
+        if add_later:
+            lookups.append(add_later)
+
         lookups = torch.tensor(lookups, dtype=torch.long, device=device)
+
+        # print("sentence: '{}'".format(sentence))
+        # print("ids: ", lookups)
 
         return lookups
 
@@ -57,35 +91,23 @@ class LSTM_Model(nn.Module):
         self.to(device)
 
     def init_hidden(self, initial_hidden_state=None):
-        if initial_hidden_state is None:
-            hidden_state = torch.zeros(1, 1, HIDDEN_SIZE, device=device)
-        else:
-            hidden_state = initial_hidden_state.view(1, 1, -1)
+        hidden_state = torch.zeros(1, 1, HIDDEN_SIZE, device=device)
+        if initial_hidden_state is not None:
+            hidden_state.copy_(initial_hidden_state)
         return (hidden_state, torch.zeros(1, 1, HIDDEN_SIZE, device=device))
 
     def forward(self, lookups, hidden_state=None):
         embeddings = self.embedding(lookups)
         hidden_and_cell = self.init_hidden(hidden_state)
         hidden_states, hidden_and_cell = self.lstm(embeddings.view(len(lookups), 1, -1), hidden_and_cell)
+        predictions = F.log_softmax(self.linear(hidden_states.view(len(lookups), -1)), dim=1)
 
-        predictions = self.linear(hidden_states.view(len(lookups), -1))
-        return F.log_softmax(predictions, dim=1)
+        return predictions
 
 
 class LSTM_Encoder(LSTM_Model):
     def __init__(self, sentences):
         super().__init__(sentences)
-
-        self.unknown_words = set()
-
-    def get_embedding_lookups(self, sentence):
-        if self.token_separator == "":
-            lookups = [self.vocabs[t] for t in sentence]
-        else:
-            lookups = [self.vocabs[t] for t in sentence.split(self.token_separator)]
-        lookups = torch.tensor(lookups, dtype=torch.long, device=device)
-
-        return lookups
 
     def train(self, output_path):
         self.to(device)
@@ -98,12 +120,11 @@ class LSTM_Encoder(LSTM_Model):
             total_loss = 0
             while data:
                 self.zero_grad()
-                sent = data.pop()
-                lookups = self.get_embedding_lookups(sent)
+                lookups = self.get_embedding_lookups(data.pop())
                 predictions = self.forward(lookups)
 
-                end_column = torch.tensor(self.vocabs['</s>'], dtype=torch.long, device=device).view(1)
-                targets = torch.cat([lookups[1:], end_column])
+                end_token = torch.tensor(self.vocabs['</s>'], dtype=torch.long, device=device).view(1)
+                targets = torch.cat([lookups[1:], end_token])
                 loss = loss_function(predictions, targets)
                 total_loss += loss.item()
 
@@ -112,22 +133,28 @@ class LSTM_Encoder(LSTM_Model):
 
             print("Epoch: {}  Loss: {}".format(i, total_loss))
             print("=" * 60)
-        print("saving to", output_path)
+
         torch.save(self.state_dict(), output_path)
+        print("LSTM encoder model saved to", output_path)
 
     def evaluate(self, sentences):
         log_likelihood_sum = 0
         num_words = 0
+        unk_idx = self.vocabs['<unk>']
+        unk_log_prob = math.log(ALPHA / MAX_VOCAB)
         with torch.no_grad():
             for sent in sentences:
-                if not all([t in self.vocabs for t in sent.split()]):
-                    continue  # TODO: ignore unknown words for now
                 predictions = self.forward(self.get_embedding_lookups(sent))
-                tokens = sent.split()[1:] + ["</s>"]
+                tokens = sent.split(self.token_separator)[1:] + ["</s>"]
                 num_words += len(tokens) + 1
                 sentence_likelihood = 0
                 for i, prediction in enumerate(predictions):
-                    sentence_likelihood += prediction[i].item()
+                    if tokens[i] in self.vocabs:
+                        target_idx = self.vocabs[tokens[i]]
+                    else:
+                        target_idx = unk_idx
+                        sentence_likelihood += unk_log_prob
+                    sentence_likelihood += prediction[target_idx].item()
 
                 log_likelihood_sum += sentence_likelihood
 
@@ -142,13 +169,13 @@ class LSTM_Encoder(LSTM_Model):
             embeddings = self.embedding(lookups)
             hidden_and_cell = self.init_hidden()
             hidden_states, hidden_and_cell = self.lstm(embeddings.view(len(lookups), 1, -1), hidden_and_cell)
-            return hidden_and_cell[-1].view(1, HIDDEN_SIZE).view(HIDDEN_SIZE)
+            return hidden_and_cell[0].view(HIDDEN_SIZE).detach()
 
     def predict(self, context):
         with torch.no_grad():
-            prediction = self.forward(self.get_embedding_lookups(context))[-1]
-            idx = torch.argmin(prediction).item()
-            max_probability = F.softmax(prediction, 0)[idx].item()
+            prediction = F.softmax(self.forward(self.get_embedding_lookups(context))[-1], dim=0)
+            idx = torch.argmax(prediction).item()
+            max_probability = prediction[idx].item()
 
         predicted = list(self.vocabs.keys())[idx]
         print("context: '{}'".format(context))
@@ -176,8 +203,8 @@ class LSTM_Decoder(LSTM_Model):
                 source = self.encoder.sentences[self.sentences.index(sent)]
                 predictions = self.forward(lookups, self.encoder.encode(source))
 
-                end_column = torch.tensor(self.vocabs['</s>'], dtype=torch.long, device=device).view(1)
-                targets = torch.cat([lookups[1:], end_column])
+                end_token = torch.tensor(self.vocabs['</s>'], dtype=torch.long, device=device).view(1)
+                targets = torch.cat([lookups[1:], end_token])
                 loss = loss_function(predictions, targets)
                 total_loss += loss.item()
 
@@ -188,6 +215,7 @@ class LSTM_Decoder(LSTM_Model):
             print("=" * 60)
 
         torch.save(self.state_dict(), output_path)
+        print("LSTM decoder model saved to", output_path)
 
     def evaluate(self, source_sentences, target_sentences):
         cumulative_bleu = 0
@@ -196,7 +224,7 @@ class LSTM_Decoder(LSTM_Model):
             cumulative_bleu += sentence_bleu(target_sentences[i], translated)
 
         print("Average BLEU score: {}".format(cumulative_bleu / len(source_sentences)))
-
+        
     def translate(self, source):
         vocabs = list(self.vocabs.keys())
         translated = ""
@@ -209,9 +237,9 @@ class LSTM_Decoder(LSTM_Model):
             while True:
                 embedding = self.embedding(self.get_embedding_lookups(previous_word))
                 hidden_state, hidden_and_cell = self.lstm(embedding.view(1, 1, -1), hidden_and_cell)
-
-                prediction = self.linear(hidden_state.view(1, -1))
-                most_likely_index = torch.argmin(F.log_softmax(prediction, dim=1))
+                prediction = F.log_softmax(self.linear(hidden_state.view(-1)), dim=0)
+                most_likely_index = torch.argmax(prediction)
+                max_probability = prediction[most_likely_index]
                 translated_token = vocabs[most_likely_index]
                 previous_word = translated_token
                 if translated_token == '</s>' or curr_length > 20:
@@ -221,8 +249,8 @@ class LSTM_Decoder(LSTM_Model):
                     sent_probability *= max_probability
                     curr_length += 1
 
-        print("source sentence: '{}'".format(source))
-        print("translated sentence: '{}'  confidence: {} %".format(translated, sent_probability))
+        # print("source sentence: '{}'".format(source))
+        # print("translated sentence: '{}'  confidence: {} %".format(translated, sent_probability))
 
         return translated
 
@@ -271,16 +299,16 @@ class NeuralTranslator:
 
         print("Evaluating Encoder...")
         self.encoder.evaluate(test_source_sentences)
-        self.encoder.predict("Natural language")
+        self.encoder.predict("The ship was wrecked on the")
 
         print("Evaluating Decoder...")
         self.decoder.evaluate(test_source_sentences, test_target_sentences)
-        self.decoder.translate("Invisible car created by German engineer")
-        self.decoder.translate("Guess what our dogs name is?")
+        print(self.decoder.translate("Invisible car created by German engineer"))
+        print(self.decoder.translate("Guess what our dogs name is?"))
 
 
 if __name__ == '__main__':
     model = NeuralTranslator("..\dataset\microtopia-train.en-zh")
-    model.train("..\model\\")    
+    model.train("..\model\\")
     model.load_model("..\model\\")
     model.evaluate("..\dataset\microtopia-test.en-zh")
