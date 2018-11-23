@@ -1,6 +1,6 @@
 import math
 import random
-
+import time
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -13,10 +13,10 @@ device = torch.device('cuda')
 #  Hyper-parameters
 ALPHA = 0.1
 MAX_VOCAB = 10000000
-EMBEDDING_DIMENSION = 64
-HIDDEN_SIZE = 16
-EPOCH = 100
-LEARNING_RATE = 0.1
+EMBEDDING_DIMENSION = 128
+HIDDEN_SIZE = 256
+EPOCH = 20
+LEARNING_RATE = 0.3
 
 class LSTM_Model(nn.Module):
     def __init__(self, sentences, vocab_separator=" "):
@@ -50,6 +50,9 @@ class LSTM_Model(nn.Module):
 
     def get_embedding_lookups(self, sentence):
         lookups = []
+        if sentence == " ":
+            return torch.tensor(self.vocabs[" "], dtype=torch.long, device=device)
+
         sentence = sentence.strip()
 
         # handles start and end token
@@ -225,7 +228,7 @@ class LSTM_Decoder(LSTM_Model):
 
         print("Average BLEU score: {}".format(cumulative_bleu / len(source_sentences)))
         
-    def translate(self, source):
+    def translate(self, source, debug=False):
         vocabs = list(self.vocabs.keys())
         translated = ""
         sent_probability = 1
@@ -246,33 +249,34 @@ class LSTM_Decoder(LSTM_Model):
                     break
                 else:
                     translated += translated_token
-                    sent_probability *= max_probability
+                    sent_probability *= math.exp(max_probability)
                     curr_length += 1
 
-        # print("source sentence: '{}'".format(source))
-        # print("translated sentence: '{}'  confidence: {} %".format(translated, sent_probability))
+        if debug:
+            print("source sentence: '{}'".format(source))
+            print("translated sentence: '{}'  confidence: {} %".format(translated, sent_probability))
 
         return translated
 
 
 class NeuralTranslator:
     def __init__(self, input_path):
-        self.source_sentences = []
-        self.target_sentences = []
-        self.parse_parallel_corpus(input_path)
-
+        self.source_sentences, self.target_sentences = self.parse_parallel_corpus(input_path)
         self.encoder = LSTM_Encoder(self.source_sentences)
         self.decoder = LSTM_Decoder(self.target_sentences, self.encoder)
 
     def parse_parallel_corpus(self, file_path):
         print("Parsing corpus...")
+        source_sentences = []
+        target_sentences = []
         with open(file_path, encoding='utf-8') as f:
             for line in iter(f.readline, ''):
                 sentence_pair = line.split('|||')
                 source = sentence_pair[0].strip()
                 target = sentence_pair[1].strip()
-                self.source_sentences.append(source)
-                self.target_sentences.append(target)
+                source_sentences.append(source)
+                target_sentences.append(target)
+        return source_sentences, target_sentences
 
     def load_model(self, model_dir):
         print("Loading encoder model...")
@@ -282,29 +286,23 @@ class NeuralTranslator:
 
     def train(self, model_dir):
         print("Training LSTM Encoder...")
+        start_time = time.time()
         self.encoder.train(model_dir + "lstm_encoder.pt")
+        print("Training completed, time taken: ", time.time() - start_time)
         print("Training LSTM Decoder...")
         self.decoder.train(model_dir + "lstm_decoder.pt")
 
     def evaluate(self, file_path):
-        test_source_sentences = []
-        test_target_sentences = []
-        with open(file_path, encoding='utf-8') as f:
-            for line in iter(f.readline, ''):
-                sentence_pair = line.split('|||')
-                source = sentence_pair[0].strip()
-                target = sentence_pair[1].strip()
-                test_source_sentences.append(source)
-                test_target_sentences.append(target)
+        test_source_sentences, test_target_sentences = self.parse_parallel_corpus(file_path)
 
         print("Evaluating Encoder...")
         self.encoder.evaluate(test_source_sentences)
-        self.encoder.predict("The ship was wrecked on the")
+        self.encoder.predict("Natural language")
 
         print("Evaluating Decoder...")
         self.decoder.evaluate(test_source_sentences, test_target_sentences)
-        print(self.decoder.translate("Invisible car created by German engineer"))
-        print(self.decoder.translate("Guess what our dogs name is?"))
+        self.decoder.translate("Invisible car created by German engineer", debug=True)
+        self.decoder.translate("Guess what our dogs name is?", debug=True)
 
 
 if __name__ == '__main__':
